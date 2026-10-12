@@ -1,14 +1,12 @@
 # nmos-reg-check
 
-Command-line health check for an [NMOS IS-04](https://specs.amwa.tv/is-04/) registry. Point it at a registry URL. It sends **HTTP GET only** to the Query API, then reports:
+Command-line health check for an [NMOS IS-04](https://specs.amwa.tv/is-04/) registry. Point it at a registry with `--registry URL`, or pass `--mdns` and let it find one on the local network the way Riedel Explorer's **Auto Discover** fills in a registry before you type a URL. Both paths send **HTTP GET only** to the Query API, then report:
 
 | Check | What it means |
 | --- | --- |
 | **R01** | The registry answers and an IS-04 **v1.x** Query API version can be negotiated. |
 | **R02** | A node heartbeat is older than the IS-04 garbage-collection interval (**12 seconds**), when a heartbeat field is present. |
 | **R05** | The same UUID is used by more than one of `nodes`, `devices`, `senders`, or `receivers`. |
-
-mDNS discovery is not implemented in this version. Pass `--mdns` alone and the command explains that, then exits 2.
 
 ## Install
 
@@ -26,9 +24,54 @@ The install adds the `nmos-reg-check` command. `python -m nmos_reg_check` runs t
 
 ```bash
 nmos-reg-check --registry http://192.168.1.20:8080
+nmos-reg-check --mdns
+nmos-reg-check --mdns --mdns-timeout 5 --lang zh
 nmos-reg-check --registry https://registry.example/x-nmos/query/v1.3/ --json
 nmos-reg-check --registry https://registry.example:8443 --insecure --lang zh
 ```
+
+`--registry` is the static URL. `--mdns` is auto-discovery. They are two ways to obtain the same registry address. If both are set, the explicit URL is used and mDNS is not browsed; a warning says so.
+
+## Discovery (`--mdns`)
+
+`--mdns` browses multicast DNS for the IS-04 DNS-SD types in `.local`:
+
+| Service type | What it is |
+| --- | --- |
+| `_nmos-query._tcp` | Query API. Preferred, because the checks call Query. |
+| `_nmos-register._tcp` | Registration API. Used only when no Query service is found. |
+| `_nmos-registration._tcp` | Legacy Registration API (IS-04 v1.2 and earlier). Used only when neither of the types above is usable. |
+
+`_nmos-node._tcp` is a Node API, not a registry, and is not browsed. Unicast DNS-SD (the spec's other browse path, used when a search domain is configured) is not implemented. On a LAN, Auto Discover is the multicast browse.
+
+Each advertisement contributes an origin, `http://address:port` or `https://address:port`. The address is taken from the mDNS A/AAAA record so the later HTTP request does not depend on resolving a `.local` name. A unicast IPv4 address is preferred, then unicast IPv6, then a link-local address, then loopback. The port is the SRV port. The HTTP path is not in the advertisement; the same client that handles `--registry` then requests `/x-nmos/query/`.
+
+TXT records follow IS-04:
+
+- `api_proto` — `http` or `https`. A missing value is treated as `http`. If an older stack lists both, `https` is used.
+- `api_ver` — comma-separated versions. A service with no v1.x version is skipped. A missing `api_ver` is kept, and the Query client negotiates v1 as usual.
+- `api_auth` — `true` means the API requires authorization. Those services are skipped; this tool does not send credentials.
+- `pri` — lower is higher priority (`0` is highest). A missing or non-integer value is treated as `100`, which IS-04 reserves for development registries, so any live registry (`0`–`99`) wins.
+
+When more than one service is usable, the choice is stable (it is not random):
+
+1. Query, then current Registration, then legacy Registration.
+2. Lower `pri`.
+3. `https` before `http`.
+4. Instance name, then host, then port.
+
+The text report and stderr name the service that was chosen, its type, priority, and how many services were found. `--json` adds a `discovery` object with the same choice and the full candidate list. A Registration advertisement is still checked through the Query API on that host and port, which is how a co-located registry is usually deployed. There is no automatic failover to the next candidate if that host does not answer.
+
+Nothing usable exits 2. That includes an empty browse, a browse where every advertisement required authorization or had no v1 API, and an mDNS failure (no multicast permission, for example). `--mdns-timeout` is how long to listen, in seconds. The default is 3. Resolving each answer can take up to another second when the address was not already in the response.
+
+### Limitations
+
+- Multicast does not cross a typical Docker bridge. A registry on the LAN is invisible to a container unless the container uses host networking (`docker run --network host` on Linux) or you pass `--registry`. The same applies to many VMs and WSL2 setups.
+- Linux needs UDP port 5353 and a route for 224.0.0.251 (and IPv6 multicast when the host has IPv6). macOS and Windows receive mDNS on the host in the usual way; the library is [python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) (`zeroconf` on PyPI), which supports all three.
+- Link-local addresses are used only when the advertisement has no other address. An IPv6 link-local address is used without a zone index, so it may be unreachable.
+- This tool does not browse unicast DNS-SD and does not retry a different discovered registry in the same run.
+
+### Registry URL
 
 `--registry` accepts any of:
 
@@ -55,11 +98,12 @@ Those collection URLs are what IS-04 v1.3 specifies. Each response is a JSON arr
 
 | Option | Meaning |
 | --- | --- |
-| `--registry URL` | Registry origin or Query API URL. |
+| `--registry URL` | Registry origin or Query API URL. Wins over `--mdns` when both are set. |
+| `--mdns` | Discover a registry with mDNS, then run the same checks. |
+| `--mdns-timeout SECONDS` | How long to listen for mDNS (default 3). Must be greater than 0. |
 | `--json` | Write the report as JSON to stdout. |
 | `--lang en\|zh` | Report language. Default `en`. |
 | `--insecure` | Do not verify TLS certificates. |
-| `--mdns` | Not implemented. Without `--registry`, exit 2 and print the reason. With `--registry`, print a warning and use the URL. |
 
 ### Exit codes
 
@@ -67,7 +111,7 @@ Those collection URLs are what IS-04 v1.3 specifies. Each response is a JSON arr
 | --- | --- |
 | 0 | No finding has severity `error`. Info results, including a skipped heartbeat check, still exit 0. |
 | 1 | The registry responded, and at least one check reported an error. |
-| 2 | No HTTP response (DNS, connection, timeout, TLS) or the command line cannot be run (bad URL, missing `--registry`, mDNS-only). |
+| 2 | No HTTP response (DNS, connection, timeout, TLS), or the command line cannot be run (bad URL, missing `--registry` / `--mdns`, invalid `--mdns-timeout`, mDNS found nothing, mDNS itself failed). |
 
 ### Example
 
@@ -186,7 +230,7 @@ An identical copy of a resource repeated on a later `Link: rel="next"` page is t
 pytest
 ```
 
-Tests load JSON fixtures from `tests/fixtures/` and answer them with an in-process HTTP mock. No live registry is required. The fixtures follow the IS-04 v1.3 Query API examples: version lists use a trailing slash (`"v1.3/"`), the API root lists `nodes/`, `devices/`, `senders/`, and `receivers/`, and resource bodies are JSON arrays.
+Tests load JSON fixtures from `tests/fixtures/` and answer them with an in-process HTTP mock. No live registry is required. mDNS is replaced with a fake browse, so CI does not need multicast. The fixtures follow the IS-04 v1.3 Query API examples: version lists use a trailing slash (`"v1.3/"`), the API root lists `nodes/`, `devices/`, `senders/`, and `receivers/`, and resource bodies are JSON arrays.
 
 ## License
 
