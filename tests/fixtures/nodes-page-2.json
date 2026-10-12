@@ -1,0 +1,20 @@
+[
+  {
+    "id": "c8ba20e9-e197-4ec5-8764-4da672128589",
+    "version": "1441716120:318744030",
+    "label": "host1",
+    "hostname": "host1",
+    "description": "page 1",
+    "tags": {},
+    "caps": {}
+  },
+  {
+    "id": "cebc6305-e8db-4026-aeb5-eb7a5620839e",
+    "version": "1441716067:450064243",
+    "label": "host2",
+    "hostname": "host2",
+    "description": "page 2",
+    "tags": {},
+    "caps": {}
+  }
+]

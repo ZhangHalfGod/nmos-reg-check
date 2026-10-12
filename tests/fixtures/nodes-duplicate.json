@@ -1,0 +1,20 @@
+[
+  {
+    "id": "c8ba20e9-e197-4ec5-8764-4da672128589",
+    "version": "1441716120:318744030",
+    "label": "host1",
+    "description": "host1",
+    "hostname": "host1",
+    "tags": {},
+    "caps": {}
+  },
+  {
+    "id": "C8BA20E9-E197-4EC5-8764-4DA672128589",
+    "version": "1441716121:1",
+    "label": "host1-alias",
+    "description": "same UUID, different letter case",
+    "hostname": "host1-alias",
+    "tags": {},
+    "caps": {}
+  }
+]

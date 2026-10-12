@@ -1,0 +1,19 @@
+[
+  {
+    "id": "c501ae64-f525-48b7-9816-c5e8931bc017",
+    "version": "1441723958:235623703",
+    "label": "Camera sharing a device id",
+    "description": "same UUID as host1 device",
+    "tags": {},
+    "manifest_href": "http://172.29.176.146/stream.sdp",
+    "flow_id": null,
+    "transport": "urn:x-nmos:transport:rtp.mcast",
+    "interface_bindings": ["en0"],
+    "device_id": "a30e4fba-254a-4e97-8bf7-daec80b8e57f",
+    "caps": {},
+    "subscription": {
+      "receiver_id": null,
+      "active": true
+    }
+  }
+]

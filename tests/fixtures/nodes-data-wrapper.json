@@ -1,0 +1,13 @@
+{
+  "data": [
+    {
+      "id": "c8ba20e9-e197-4ec5-8764-4da672128589",
+      "version": "1441716120:318744030",
+      "label": "host1",
+      "description": "data wrapper",
+      "hostname": "host1",
+      "tags": {},
+      "caps": {}
+    }
+  ]
+}

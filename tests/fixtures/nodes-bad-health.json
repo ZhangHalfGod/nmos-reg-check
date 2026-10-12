@@ -1,0 +1,12 @@
+[
+  {
+    "id": "c8ba20e9-e197-4ec5-8764-4da672128589",
+    "version": "1441716120:318744030",
+    "label": "host1",
+    "hostname": "host1",
+    "description": "unparseable health",
+    "tags": {},
+    "caps": {},
+    "health": "not-a-timestamp"
+  }
+]

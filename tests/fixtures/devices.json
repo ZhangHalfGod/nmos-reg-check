@@ -1,0 +1,26 @@
+[
+  {
+    "id": "c501ae64-f525-48b7-9816-c5e8931bc017",
+    "version": "1441723957:582701772",
+    "label": "host1 device",
+    "description": "pipeline 1 default device",
+    "tags": {},
+    "node_id": "c8ba20e9-e197-4ec5-8764-4da672128589",
+    "type": "urn:x-nmos:device:pipeline",
+    "senders": ["171d5c80-7fff-4c23-9383-46503eb1c63e"],
+    "receivers": ["863532de-a97d-4597-989a-e79688f2d5f9"],
+    "controls": []
+  },
+  {
+    "id": "a30e4fba-254a-4e97-8bf7-daec80b8e57f",
+    "version": "1441976012:727999141",
+    "label": "host2 device",
+    "description": "pipeline 1 default device",
+    "tags": {},
+    "node_id": "cebc6305-e8db-4026-aeb5-eb7a5620839e",
+    "type": "urn:x-nmos:device:pipeline",
+    "senders": [],
+    "receivers": [],
+    "controls": []
+  }
+]
