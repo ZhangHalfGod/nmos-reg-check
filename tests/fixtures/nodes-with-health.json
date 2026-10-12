@@ -1,0 +1,23 @@
+[
+  {
+    "version": "1441716120:318744030",
+    "hostname": "host1",
+    "label": "host1",
+    "description": "host1",
+    "tags": {},
+    "href": "http://172.29.176.102:12345/",
+    "caps": {},
+    "id": "c8ba20e9-e197-4ec5-8764-4da672128589",
+    "health": "1441974485"
+  },
+  {
+    "version": "1441716067:450064243",
+    "hostname": "host2",
+    "label": "host2",
+    "description": "host2",
+    "tags": {},
+    "href": "http://172.29.176.19:12345/",
+    "caps": {},
+    "id": "cebc6305-e8db-4026-aeb5-eb7a5620839e"
+  }
+]

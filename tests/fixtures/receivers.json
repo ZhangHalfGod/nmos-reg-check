@@ -1,0 +1,20 @@
+[
+  {
+    "id": "863532de-a97d-4597-989a-e79688f2d5f9",
+    "version": "1441895693:480000000",
+    "label": "host1 receiver",
+    "description": "host1 receiver",
+    "tags": {},
+    "device_id": "c501ae64-f525-48b7-9816-c5e8931bc017",
+    "transport": "urn:x-nmos:transport:rtp.mcast",
+    "interface_bindings": ["eth0"],
+    "subscription": {
+      "sender_id": null,
+      "active": false
+    },
+    "format": "urn:x-nmos:format:video",
+    "caps": {
+      "media_types": ["video/raw"]
+    }
+  }
+]
