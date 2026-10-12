@@ -50,9 +50,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "r02_absent": "Nodes have no health or heartbeat field; heartbeat check skipped",
         "r02_unparsed": "Health field is present but is not a recognized timestamp",
         "r02_stale": "Heartbeat is stale ({age}s old; limit {threshold}s)",
-        "mdns_only": "mDNS discovery is not implemented in W1. Pass --registry with an http or https IS-04 Query API URL.",
-        "mdns_ignored": "mDNS discovery is not implemented in W1; continuing with --registry.",
-        "registry_required": "Pass --registry with an http or https IS-04 Query API URL.",
+        "header_discovery_query": 'Discovery: mDNS {service_type} "{name}" at {url} (priority {priority}; {found} found)',
+        "header_discovery_registration": 'Discovery: no Query service; using Registration {service_type} "{name}" at {url} (priority {priority}; {found} found)',
+        "mdns_ignored": "--registry was provided, so mDNS discovery was skipped.",
+        "mdns_none": "No NMOS Query or Registration service was found via mDNS in {timeout}s. Browsed _nmos-query._tcp, _nmos-register._tcp, and _nmos-registration._tcp.",
+        "mdns_auth_only": "mDNS found {count} NMOS registry advertisement(s), but each requires authorization (api_auth=true). This tool does not send credentials.",
+        "mdns_no_v1": "mDNS found {count} NMOS registry advertisement(s), but none advertise an IS-04 v1 API.",
+        "mdns_unresolved": "mDNS saw {count} NMOS registry advertisement(s), but none included a usable address, port, and http or https protocol.",
+        "mdns_none_usable": "mDNS found NMOS registry advertisements, but none can be checked ({auth} require authorization, {version} do not advertise IS-04 v1, {address} have no usable address).",
+        "mdns_failed": "mDNS discovery failed: {detail}",
+        "mdns_timeout_invalid": "--mdns-timeout must be a positive number of seconds.",
+        "registry_required": "Pass --registry with an http or https URL, or --mdns to discover a registry on the local network.",
         "r05_ok": "No duplicate UUIDs in nodes, devices, senders, or receivers",
         "r05_duplicate": "UUID {uuid} is used by {count} resources: {places}",
     },
@@ -81,9 +89,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "r02_absent": "节点没有 health/heartbeat 字段，已跳过心跳检查",
         "r02_unparsed": "存在 health 字段，但不是可识别的时间戳",
         "r02_stale": "心跳已过期（已过去 {age} 秒，上限 {threshold} 秒）",
-        "mdns_only": "W1 尚未实现 mDNS 发现。请使用 --registry 传入 http 或 https 的 IS-04 Query API 地址。",
-        "mdns_ignored": "W1 尚未实现 mDNS 发现；将继续使用 --registry。",
-        "registry_required": "请使用 --registry 传入 http 或 https 的 IS-04 Query API 地址。",
+        "header_discovery_query": "发现: mDNS {service_type} “{name}”，地址 {url}（优先级 {priority}；共 {found} 个）",
+        "header_discovery_registration": "发现: 没有 Query 服务；改用 Registration {service_type} “{name}”，地址 {url}（优先级 {priority}；共 {found} 个）",
+        "mdns_ignored": "已提供 --registry，因此跳过 mDNS 发现。",
+        "mdns_none": "在 {timeout} 秒内没有通过 mDNS 发现 NMOS Query 或 Registration 服务。已浏览 _nmos-query._tcp、_nmos-register._tcp 和 _nmos-registration._tcp。",
+        "mdns_auth_only": "mDNS 发现了 {count} 个 NMOS 注册中心通告，但它们都要求授权（api_auth=true）。本工具不会发送凭据。",
+        "mdns_no_v1": "mDNS 发现了 {count} 个 NMOS 注册中心通告，但没有一个声明 IS-04 v1 API。",
+        "mdns_unresolved": "mDNS 看到了 {count} 个 NMOS 注册中心通告，但没有一个同时包含可用地址、端口以及 http 或 https 协议。",
+        "mdns_none_usable": "mDNS 发现了 NMOS 注册中心通告，但都无法检查（{auth} 个要求授权，{version} 个未声明 IS-04 v1，{address} 个没有可用地址）。",
+        "mdns_failed": "mDNS 发现失败：{detail}",
+        "mdns_timeout_invalid": "--mdns-timeout 必须是大于 0 的秒数。",
+        "registry_required": "请使用 --registry 传入 http 或 https 地址，或使用 --mdns 在局域网中发现注册中心。",
         "r05_ok": "节点、设备、发送器、接收器中没有重复 UUID",
         "r05_duplicate": "UUID {uuid} 被 {count} 个资源使用：{places}",
     },
@@ -92,6 +108,26 @@ STRINGS: dict[str, dict[str, str]] = {
 
 def text(lang: str, key: str, **params: Any) -> str:
     return STRINGS[lang][key].format(**params)
+
+
+def discovery_notice(lang: str, discovery: dict[str, Any]) -> str:
+    """One line describing which mDNS service was selected."""
+
+    chosen = discovery["chosen"]
+    key = (
+        "header_discovery_query"
+        if chosen.get("role") == "query"
+        else "header_discovery_registration"
+    )
+    return text(
+        lang,
+        key,
+        name=chosen["name"],
+        service_type=chosen["type"],
+        url=chosen["url"],
+        priority=chosen["priority"],
+        found=discovery["found"],
+    )
 
 
 def make_report(
@@ -103,13 +139,14 @@ def make_report(
     findings: list[Finding],
     lang: str,
     exit_code: int,
+    discovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     summary = {
         "error": sum(1 for finding in findings if finding.severity == "error"),
         "info": sum(1 for finding in findings if finding.severity == "info"),
         "ok": sum(1 for finding in findings if finding.severity == "ok"),
     }
-    return {
+    report: dict[str, Any] = {
         "tool": "nmos-reg-check",
         "version": __version__,
         "lang": lang,
@@ -127,6 +164,9 @@ def make_report(
         "summary": summary,
         "findings": [_finding_json(finding, lang) for finding in findings],
     }
+    if discovery is not None:
+        report["discovery"] = discovery
+    return report
 
 
 def render_json(report: dict[str, Any]) -> str:
@@ -139,18 +179,24 @@ def render_text(report: dict[str, Any]) -> str:
     counts = report["counts"]
     lines = [
         strings["header_registry"].format(url=report["registry_url"] or "-"),
-        strings["header_query"].format(
-            version=report["query_version"] or "-",
-            url=report["query_url"] or "-",
-        ),
-        strings["header_counts"].format(
-            nodes=counts["nodes"],
-            devices=counts["devices"],
-            senders=counts["senders"],
-            receivers=counts["receivers"],
-        ),
-        "",
     ]
+    if report.get("discovery"):
+        lines.append(discovery_notice(lang, report["discovery"]))
+    lines.extend(
+        [
+            strings["header_query"].format(
+                version=report["query_version"] or "-",
+                url=report["query_url"] or "-",
+            ),
+            strings["header_counts"].format(
+                nodes=counts["nodes"],
+                devices=counts["devices"],
+                senders=counts["senders"],
+                receivers=counts["receivers"],
+            ),
+            "",
+        ]
+    )
     header = [
         strings["col_check"],
         strings["col_severity"],

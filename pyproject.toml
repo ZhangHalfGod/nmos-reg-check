@@ -20,7 +20,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: System :: Monitoring",
 ]
-dependencies = ["httpx>=0.27"]
+dependencies = [
+    "httpx>=0.27",
+    "zeroconf>=0.131",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

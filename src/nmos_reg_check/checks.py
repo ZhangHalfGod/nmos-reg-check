@@ -115,12 +115,14 @@ def usage_finding(message_key: str, **params: str) -> Finding:
     )
 
 
-def mdns_finding() -> Finding:
+def discovery_finding(message_key: str, **params: Any) -> Finding:
     return Finding(
         check_id="MDNS",
         severity="error",
-        code="mdns_not_implemented",
-        message_key="mdns_only",
+        code=message_key,
+        message_key=message_key,
+        message_params=dict(params),
+        details=dict(params),
     )
 
 

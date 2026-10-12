@@ -1,4 +1,4 @@
-"""CLI exit codes, languages, and the mDNS stub."""
+"""CLI exit codes, languages, and mDNS discovery wired to the Query checks."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import pytest
 
 from nmos_reg_check.cli import main
 from nmos_reg_check.client import create_client
+from nmos_reg_check.discovery import DiscoveryError, DiscoveryResult, DiscoveredService
 from tests.conftest import REGISTRY, healthy_routes, load_json, scripted_transport
 
 HEALTH = 1441974485
@@ -32,6 +33,9 @@ def test_help_and_version(capsys: pytest.CaptureFixture[str]):
     assert "--lang" in help_text
     assert "--insecure" in help_text
     assert "--mdns" in help_text
+    assert "--mdns-timeout" in help_text
+    assert "not implemented" not in help_text
+    assert "explicit URL" in help_text
 
     assert main(["--version"]) == 0
     assert "nmos-reg-check" in capsys.readouterr().out
@@ -151,26 +155,188 @@ def test_missing_registry_exits_two(capsys: pytest.CaptureFixture[str]):
     captured = capsys.readouterr()
     assert code == 2
     assert "Pass --registry" in captured.out
+    assert "--mdns" in captured.out
 
 
-def test_mdns_alone_is_not_implemented(capsys: pytest.CaptureFixture[str]):
-    code = main(["--mdns", "--lang", "zh", "--json"])
-    report = json.loads(capsys.readouterr().out)
-    assert code == 2
-    assert report["exit_code"] == 2
-    assert report["findings"][0]["code"] == "mdns_not_implemented"
-    assert "尚未实现" in report["findings"][0]["message"]
+def _service(**overrides: object) -> DiscoveredService:
+    fields: dict[str, object] = {
+        "name": "Lab Registry",
+        "service_type": "_nmos-query._tcp",
+        "host": "192.168.1.20",
+        "port": 8080,
+        "protocol": "http",
+        "priority": 0,
+        "api_versions": ("v1.0", "v1.1", "v1.2", "v1.3"),
+    }
+    fields.update(overrides)
+    return DiscoveredService(**fields)  # type: ignore[arg-type]
 
 
-def test_mdns_with_registry_warns_and_uses_the_url(capsys: pytest.CaptureFixture[str]):
+def test_mdns_discovers_one_query_service_and_runs_checks(capsys: pytest.CaptureFixture[str]):
+    def discover(*, timeout: float) -> DiscoveryResult:
+        assert timeout == 3.0
+        return DiscoveryResult(services=(_service(),))
+
     code = main(
-        ["--mdns", "--registry", REGISTRY],
+        ["--mdns", "--json"],
         transport=scripted_transport(healthy_routes()),
+        discover=discover,
     )
     captured = capsys.readouterr()
     assert code == 0
-    assert "not implemented in W1" in captured.err
+    report = json.loads(captured.out)
+    assert report["ok"] is True
+    assert report["exit_code"] == 0
+    assert report["registry_url"] == "http://192.168.1.20:8080"
+    assert report["query_version"] == "v1.3"
+    assert report["query_url"] == "http://192.168.1.20:8080/x-nmos/query/v1.3/"
+    assert report["counts"] == {"nodes": 2, "devices": 2, "senders": 1, "receivers": 1}
+    codes = [(item["id"], item["code"], item["severity"]) for item in report["findings"]]
+    assert ("R01", "query_api_reachable", "ok") in codes
+    assert ("R02", "heartbeat_absent", "info") in codes
+    assert ("R05", "no_duplicate_ids", "ok") in codes
+    assert report["discovery"]["method"] == "mdns"
+    assert report["discovery"]["found"] == 1
+    assert report["discovery"]["chosen"]["url"] == "http://192.168.1.20:8080"
+    assert report["discovery"]["chosen"]["type"] == "_nmos-query._tcp"
+    assert report["discovery"]["chosen"]["role"] == "query"
+    assert 'mDNS _nmos-query._tcp "Lab Registry"' in captured.err
+
+
+def test_mdns_text_report_names_the_chosen_service(capsys: pytest.CaptureFixture[str]):
+    def discover(*, timeout: float) -> DiscoveryResult:
+        return DiscoveryResult(services=(_service(),))
+
+    code = main(
+        ["--mdns", "--lang", "zh"],
+        transport=scripted_transport(healthy_routes()),
+        discover=discover,
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "版本协商成功" in captured.out
+    assert "发现: mDNS _nmos-query._tcp" in captured.out
+    assert "192.168.1.20:8080" in captured.out
+    assert "发现: mDNS _nmos-query._tcp" in captured.err
+
+
+def test_mdns_none_exits_two_in_english_and_chinese(capsys: pytest.CaptureFixture[str]):
+    seen: list[float] = []
+
+    def discover(*, timeout: float) -> DiscoveryResult:
+        seen.append(timeout)
+        return DiscoveryResult()
+
+    code = main(["--mdns", "--mdns-timeout", "4", "--json"], discover=discover)
+    report = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert report["exit_code"] == 2
+    assert report["findings"][0]["id"] == "MDNS"
+    assert report["findings"][0]["code"] == "mdns_none"
+    assert "_nmos-query._tcp" in report["findings"][0]["message"]
+    assert "4s" in report["findings"][0]["message"]
+
+    code = main(["--mdns", "--lang", "zh"], discover=discover)
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "没有通过 mDNS 发现" in captured.out
+    assert seen == [4.0, 3.0]
+
+
+def test_mdns_picks_the_stable_winner_among_several(capsys: pytest.CaptureFixture[str]):
+    def discover(*, timeout: float) -> DiscoveryResult:
+        return DiscoveryResult(
+            services=(
+                _service(name="zeta", host="10.0.0.9", priority=0),
+                _service(name="alpha", host="192.168.1.20", priority=0),
+                _service(
+                    name="priority-zero-register",
+                    service_type="_nmos-register._tcp",
+                    host="10.0.0.1",
+                    priority=0,
+                ),
+            )
+        )
+
+    code = main(
+        ["--mdns", "--json"],
+        transport=scripted_transport(healthy_routes()),
+        discover=discover,
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert report["discovery"]["chosen"]["name"] == "alpha"
+    assert report["discovery"]["found"] == 3
+    assert report["registry_url"] == "http://192.168.1.20:8080"
+    assert report["query_version"] == "v1.3"
+
+
+def test_mdns_registration_fallback_still_runs_query_checks(capsys: pytest.CaptureFixture[str]):
+    def discover(*, timeout: float) -> DiscoveryResult:
+        return DiscoveryResult(
+            services=(
+                _service(
+                    name="reg-only",
+                    service_type="_nmos-register._tcp",
+                    host="10.9.9.9",
+                    port=8080,
+                ),
+            )
+        )
+
+    code = main(
+        ["--mdns"],
+        transport=scripted_transport(healthy_routes()),
+        discover=discover,
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "no Query service" in captured.out
+    assert "http://10.9.9.9:8080" in captured.out
     assert "Query API v1.3 is reachable" in captured.out
+
+
+def test_mdns_with_registry_skips_discovery(capsys: pytest.CaptureFixture[str]):
+    def discover(*, timeout: float) -> DiscoveryResult:
+        raise AssertionError("mDNS should not browse when --registry is set")
+
+    code = main(
+        ["--mdns", "--registry", REGISTRY],
+        transport=scripted_transport(healthy_routes()),
+        discover=discover,
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "mDNS discovery was skipped" in captured.err
+    assert "Query API v1.3 is reachable" in captured.out
+    assert "Discovery:" not in captured.out
+
+    code = main(
+        ["--mdns", "--registry", REGISTRY, "--lang", "zh"],
+        transport=scripted_transport(healthy_routes()),
+        discover=discover,
+    )
+    assert code == 0
+    assert "跳过 mDNS 发现" in capsys.readouterr().err
+
+
+def test_mdns_failure_and_bad_timeout_exit_two(capsys: pytest.CaptureFixture[str]):
+    def discover(*, timeout: float) -> DiscoveryResult:
+        raise DiscoveryError("Permission denied")
+
+    code = main(["--mdns", "--json"], discover=discover)
+    report = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert report["findings"][0]["code"] == "mdns_failed"
+    assert "Permission denied" in report["findings"][0]["message"]
+
+    code = main(["--mdns", "--mdns-timeout", "0", "--lang", "zh", "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert report["findings"][0]["code"] == "mdns_timeout_invalid"
+    assert "大于 0" in report["findings"][0]["message"]
+
+    assert main(["--mdns-timeout", "nope"]) == 2
 
 
 def test_insecure_flag_disables_tls_verification(monkeypatch: pytest.MonkeyPatch):
