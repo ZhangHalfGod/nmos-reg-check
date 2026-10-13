@@ -9,7 +9,7 @@ Windows 11 实验机上的过程记录。要按顺序复现「准备 → 启动 
 - **W1**：手动指定 Registry URL（`--registry`），只对 Query API 做 HTTP GET。
 - **W2**：`--mdns` 在局域网里浏览 `_nmos-query`、`_nmos-register`、`_nmos-registration`，选中一个服务后再走同一套检查。这和 Explorer 类工具的 **Auto Discover** 是同一类动作：先找到 Registry，再访问它。
 
-下面按实际走过的顺序写。命令、路径、地址保持实验时的写法。仓库和 Conan deployer 的工作目录是 `D:\trae_git\nmos-reg-check\`。Docker 与 `config.json` 在 `D:\zc_softwate\Docker\WorkSpace\nmos-registry\`，那份配置不在仓库里。
+下面按实际走过的顺序写。命令、路径、地址保持实验时的写法。仓库和 Conan deployer 的工作目录是 `D:\trae_git\nmos-reg-check\`。Docker 与当时的 `config.json` 在 `D:\zc_softwate\Docker\WorkSpace\nmos-registry\`。同一份内容现已提交为 `lab/config.json`。
 
 ## 最后能工作的状态
 
@@ -203,6 +203,8 @@ D:\trae_git\nmos-reg-check\direct_deploy\nmos-cpp\bin\Release\nmos-cpp-node.exe
 | 本机 Registry 起不来，端口被占 | Docker Registry 仍占着 `3210`–`3213` | 先停掉 Docker 里的 Registry，再起本机进程 |
 
 ## 和 README 相同的启动命令
+
+日常在 Windows 上启动本机 Registry，用 [`scripts/start-lab-registry.bat`](../../scripts/start-lab-registry.bat)（见[一键启动](../../README.zh-CN.md#一键启动)）。
 
 可重复的顺序以中文 README 的[实验室操作顺序](../../README.zh-CN.md#实验室操作顺序)为准：准备阶段里的 Bonjour 与本机 Registry 就绪、启动、静态 Query 与 Auto Discover 分开、再跑 W1 / W2。下面只留实验机上的命令。
 

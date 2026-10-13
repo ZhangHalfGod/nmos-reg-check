@@ -15,3 +15,6 @@ conanbuild*.bat
 conanbuild*.sh
 deactivate_conanrun*
 deactivate_conanbuild*
+
+# Logs from scripts/start-lab-registry.ps1
+logs/
