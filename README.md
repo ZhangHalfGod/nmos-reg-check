@@ -2,12 +2,13 @@
 
 Read-only health check for an [NMOS IS-04](https://specs.amwa.tv/is-04/) registry. It sends **HTTP GET only** to the Query API and reports three results: the registry answers and a v1.x version is negotiated (**R01**), a node heartbeat is stale when that field exists (**R02**), and a UUID is reused across resources (**R05**).
 
-下面按实验机上的顺序写：先启动本机 Registry，再让设备和 Explorer 指向它，然后跑 W1、W2，最后看什么样算通过。2026-10-13 的实机结果也在这一节。编译和排错过程在部署笔记里。
+下面按实验机上的顺序写：先做准备（Bonjour、Conan、本机 Registry），再启动 Registry，再让设备和 Explorer 类工具指向它，然后跑 W1、W2，最后看什么样算通过。2026-10-13 的实机结果也在这一节。编译和排错过程在部署笔记里。
 
 ## 文档导航
 
-- [实机部署过程（Registry + Explorer Auto/mDNS）](docs/deploy-lab/README.md)
+- [实机部署过程（Registry 与自动发现）](docs/deploy-lab/README.md)
 - [实验室操作顺序](#实验室操作顺序)
+- [准备阶段](#1-准备阶段)
 - [安装 CLI](#安装-cli)
 - [检查项](#checks)
 - [测试](#tests)
@@ -20,39 +21,114 @@ Read-only health check for an [NMOS IS-04](https://specs.amwa.tv/is-04/) registr
 两条路最后做的是同一组检查。
 
 - **W1** 手写 Registry 的 Query API：`--registry http://192.168.1.15:3211`。
-- **W2** 让程序在局域网里找 Registry：`--mdns`。这和 Riedel Explorer 的 **Auto Discover** 是同一类动作。
+- **W2** 让程序在局域网里找 Registry：`--mdns`。这和 Explorer 类工具的 **Auto Discover** 是同一类动作。
 
 2026-10-13 能工作的地址：
 
 | 角色 | 地址 | 用途 |
 | --- | --- | --- |
 | 实验 PC，本机 Registry | `192.168.1.15` | `config.json` 的 `host_address`，也是局域网入口 |
-| Query API | `http://192.168.1.15:3211` | W1、Explorer 静态查询。端口 `3211` |
+| Query API | `http://192.168.1.15:3211` | W1、Explorer 类工具的静态查询。端口 `3211` |
 | Node API | 端口 `3212` | Registry 自己的 Node 端口。检查命令不填这个端口 |
-| DUT，ST2110 Encap 4K | `192.168.1.11` | 已经注册进来的 nmos-node |
+| 真机 Node（DUT，测试设备） | `192.168.1.11` | 已经注册进来的 nmos-node |
 
 Registration 端口是 `3210`，Query WebSocket 是 `3213`。`nmos-reg-check` 只访问 Query API。
 
-### 1. 准备
+### 1. 准备阶段
 
-- Windows 服务 **Bonjour Service** 为 Running。本机 Registry 用 `mdnsresponder` 发 mDNS，靠这个服务。
-- `nmos-cpp-registry.exe` 已经编好。实验机上的文件是 `direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.exe`。Conan 包、MSVC 194 和链接错误写在 [部署笔记](docs/deploy-lab/README.md)，这里不重复。
-- 做 Auto Discover 或 `--mdns` 时，PC 和设备在同一二层。实验里是 PC `192.168.1.15`，DUT `192.168.1.11`，子网 `192.168.1.0/24`。
+做第 2 步之前，Windows 11 实验机上要有正在运行的 **Bonjour Service**，以及编好的本机 Registry。仓库和 Conan deployer 的工作目录是 `D:\trae_git\nmos-reg-check\`。`config.json` 不在仓库里，在 `D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json`。更完整的过程在 [部署笔记](docs/deploy-lab/README.md#准备阶段)。
+
+#### Bonjour（Windows 11）
+
+本机 Registry 的 DNS-SD 选项是 `with_dnssd=mdnsresponder`。Conan 的 `mdnsresponder` 包可能带上 `dns-sd` 一类工具，但 **操作系统里的 Bonjour Service 要另外安装**，并且状态是 Running。没有这个服务，局域网上看不到 `_nmos-query`。
+
+安装 Apple 的 **Bonjour Print Services for Windows**（支持文档 [DL999](https://support.apple.com/kb/DL999)，页面标题为 Bonjour Print Services for Windows v2.0.2）。这份安装包会注册名为 `Bonjour Service` 的 Windows 服务。装完后把该服务的启动类型设为自动，并启动它。
+
+安装后确认，二选一：
+
+- 打开「服务」（`services.msc`），**Bonjour Service** 的状态是 **Running**。
+- 或在 PowerShell：
+
+```powershell
+Get-Service 'Bonjour Service'
+```
+
+`Status` 为 `Running` 即可。若提示找不到服务，说明操作系统里还没有装上，Conan 的 `mdnsresponder` 不能代替它。
+
+#### 安装 Conan
+
+实验机使用 Conan 2.x。在已有 Python 的 Windows 上，推荐用 pip 安装，然后核对版本：
+
+```bat
+pip install conan
+conan --version
+```
+
+从源码编译需要 Visual Studio 的 C++ 工作负载：在 Visual Studio Installer 里勾选「使用 C++ 的桌面开发」（Desktop development with C++）。实验机的 profile 是 `compiler=msvc`、`compiler.version=194`（Visual Studio 2022 的 MSVC 19.4x）。
+
+#### 用 Conan 部署二进制
+
+在 `D:\trae_git\nmos-reg-check\` 下执行。`--deployer=direct_deploy` 把文件写到当前目录，工作目录保持为这一路径，输出才落在 `D:\trae_git\nmos-reg-check\direct_deploy\`。
+
+没有 `compiler.version=194` 的预编译包时，从源码编 `nmos-cpp`：
+
+```bat
+cd /d D:\trae_git\nmos-reg-check
+conan install --requires=nmos-cpp/cci.20240223 --deployer=direct_deploy --build=nmos-cpp/cci.20240223
+```
+
+链接 cpprestsdk 出现下面的 `LNK2019` 时，把这份依赖也从源码重编：
+
+```bat
+cd /d D:\trae_git\nmos-reg-check
+conan install --requires=nmos-cpp/cci.20240223 --deployer=direct_deploy --build=nmos-cpp/cci.20240223 --build=cpprestsdk/*
+```
+
+DNS-SD 必须是 `with_dnssd=mdnsresponder`，编译器是 MSVC 194。实验机上实际成功的命令是（profile 里其余字段沿用这台机器已有的 MSVC 设置；代理另配，不写在这里）：
+
+```bat
+cd /d D:\trae_git\nmos-reg-check
+conan install --requires=nmos-cpp/cci.20240223 ^
+  -o with_dnssd=mdnsresponder ^
+  -s compiler=msvc -s compiler.version=194 ^
+  --build=nmos-cpp/cci.20240223 --build=cpprestsdk/* ^
+  --deployer=direct_deploy
+```
+
+产物在 `D:\trae_git\nmos-reg-check\direct_deploy\nmos-cpp\bin\Release\`。同一次部署还会在 `D:\trae_git\nmos-reg-check\` 生成 `conanrun*.bat`。这些都是本机编译结果，已经写进 `.gitignore`，不要提交。这次充当 Registry 的是：
+
+```text
+D:\trae_git\nmos-reg-check\direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.exe
+```
+
+同一次部署还带出 `D:\trae_git\nmos-reg-check\direct_deploy\nmos-cpp\bin\Release\nmos-cpp-node.exe`。Registry 用上面的 `nmos-cpp-registry.exe`。
+
+#### 编译时踩过的坑
+
+| 现象 | 处理 |
+| --- | --- |
+| 没有 `compiler.version=194` 的预编译包 | 加上 `--build=nmos-cpp/cci.20240223`，从源码编 |
+| 从国内拉 GitHub 源码超时。Conan 会重试 `github.com/sony/nmos-cpp` 的源码归档 | 给环境设置 `HTTPS_PROXY`（或 `https_proxy`），或事先把源码放到 Conan 能取用的位置。这里不写代理地址 |
+| 链接错误 `LNK2019: __std_find_first_of_trivial_pos_2`，来自 cpprestsdk，ABI 和当前 MSVC 不一致 | 用同一套 MSVC 从源码重编：`--build=cpprestsdk/*` |
+
+其余实验条件：
+
+- 做 Auto Discover 或 `--mdns` 时，PC 和设备在同一二层。实验里是 PC `192.168.1.15`，真机 Node `192.168.1.11`，子网 `192.168.1.0/24`。
 - PC 还在 Netgear NAT 后面时（当时 PC 是 `10.0.0.4`，WAN 是 `192.168.1.10`），只能做静态 Query。mDNS 过不了那层 NAT。
-- Docker Desktop 里的 `rhastie/nmos-cpp` 只用来快速确认静态 Query。Auto/mDNS 用本机 Registry。容器如果还占着 `3210`–`3213`，先停掉。
+- Docker Desktop 里的 `rhastie/nmos-cpp` 只用来快速确认静态 Query。Auto/mDNS 用本机 Registry。容器如果还占着 `3210`–`3213`，先停掉。Compose 目录是 `D:\zc_softwate\Docker\WorkSpace\nmos-registry\`。
 - 跑第 4、5 步之前安装命令行工具，见 [安装 CLI](#安装-cli)。启动 Registry 不需要这个安装。
 
 ### 2. 启动 Registry
 
-配置沿用实验机上的 `config.json`：`host_address` 为 `192.168.1.15`，编码是 UTF-8、无 BOM。路径是这台 PC 上的，不是仓库里的文件：
+配置沿用实验机上的 `config.json`：`host_address` 为 `192.168.1.15`，编码是 UTF-8、无 BOM。可执行文件在仓库工作目录下（不提交），配置文件在 Docker 那份目录里：
 
 ```bat
-direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.exe D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json
+D:\trae_git\nmos-reg-check\direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.exe D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json
 ```
 
 起来之后，Bonjour 上会注册 `_nmos-query`、`_nmos-registration`、`_nmos-register`、`_nmos-node`。
 
-### 3. 让设备和 Explorer 指向 Registry
+### 3. 让设备和 Explorer 类工具指向 Registry
 
 静态查询和 Auto Discover 是两种用法。
 
@@ -64,7 +140,7 @@ http://192.168.1.15:3211
 
 `192.168.1.15` 是跑 Registry 的 PC。`3211` 是 Query API。设备侧的 RDS 填设备在网上能够访问到的 Registry 主机：和 PC 同一子网时是 `192.168.1.15`。PC 还在 NAT 后面时，设备填 Netgear WAN `192.168.1.10`，并已把 TCP `3210`–`3213` 映射到 PC。
 
-**Auto Discover。** 在 Explorer 里使用 Auto Discover。PC 与设备保持同一二层，Registry 用第 2 步的本机进程，由 Bonjour 发广告。
+**Auto Discover。** 在 Explorer 类工具里使用 Auto Discover。PC 与设备保持同一二层，Registry 用第 2 步的本机进程，由 Bonjour 发广告。
 
 ### 4. W1：手写 Query API
 
@@ -86,7 +162,7 @@ Registry 已经在发 mDNS、并且就在这台 PC 上（或同一二层）时�
 nmos-reg-check --mdns --lang zh
 ```
 
-W2 用来确认「不手填 URL 也能找到 Registry」，也就是 Explorer Auto Discover 在做的事。它浏览 `_nmos-query`，没有 Query 时再用 `_nmos-register`，仍没有再用旧的 `_nmos-registration`。浏览对象是 Registry。设备的 `_nmos-node` 不在浏览范围内。
+W2 用来确认「不手填 URL 也能找到 Registry」，也就是 Explorer 类工具里 Auto Discover 在做的事。它浏览 `_nmos-query`，没有 Query 时再用 `_nmos-register`，仍没有再用旧的 `_nmos-registration`。浏览对象是 Registry。设备的 `_nmos-node` 不在浏览范围内。
 
 默认听 3 秒。需要更长时间时：
 
@@ -102,8 +178,8 @@ W2 报告开头有一行发现结果，标出选中的服务、类型、优先�
 
 2026-10-13 在上面这套地址上看到的是：
 
-- Explorer **Auto Discover** 找到 Registry。
-- ST2110 Encap 4K（`192.168.1.11`）已经注册，nodes、devices、senders 可见。
+- Explorer 类工具的 **Auto Discover** 找到 Registry。
+- 真机 Node（`192.168.1.11`）已经注册，nodes、devices、senders 可见。
 - `nmos-reg-check --mdns` 发现了 Query 服务。解析到的地址可能是虚拟网卡，见第 5 步。
 
 命令行通过时退出码是 0，表格里没有「错误」。对着这台 nmos-cpp Registry，Query 的 node 文档通常没有心跳字段，R02 会是「信息」，这仍然是退出码 0。下面是 `--lang zh` 时的报告形状，尖括号里的版本和个数随当天的 Registry 变化，不是一份保存下来的 2026-10-13 原始输出：
@@ -121,14 +197,15 @@ R05     正常  -     节点、设备、发送器、接收器中没有重复 UUI
 0 个错误，1 条信息，2 个正常
 ```
 
-资源行里应能对上 Explorer 里已经看见的 ST2110 节点、设备和发送器。心跳字段存在而且早于 12 秒时，R02 变为错误，退出码为 1。连不上 Registry 时退出码为 2。各项判定见 [检查项](#checks)。
+资源行里应能对上 Explorer 类工具里已经看见的真机节点、设备和发送器。心跳字段存在而且早于 12 秒时，R02 变为错误，退出码为 1。连不上 Registry 时退出码为 2。各项判定见 [检查项](#checks)。
 
 ### 7. 常见问题
 
 | 现象 | 处理 |
 | --- | --- |
 | 设备连不上 Registry，RDS 里写了 `127.0.0.1` | `127.0.0.1` 只指向填写它的那台机器。设备填它能访问的 Registry 主机：同网段用 `192.168.1.15`；NAT 阶段用 `192.168.1.10`，并映射 TCP `3210`–`3213`。`10.0.0.4` 在 NAT 内侧，设备没有反向路径。 |
-| 静态 Query 正常，Explorer Auto 为空 | Docker Desktop 发出的 mDNS 到不了主机局域网。设备的 `_nmos-node` 当时在 LAN 上是可见的。Auto/mDNS 改用第 2 步的本机 Registry 和 Bonjour，PC 与设备放在同一二层。 |
+| 静态 Query 正常，Explorer 类工具的 Auto 为空 | Docker Desktop 发出的 mDNS 到不了主机局域网。设备的 `_nmos-node` 当时在 LAN 上是可见的。Auto/mDNS 改用第 2 步的本机 Registry 和 Bonjour，PC 与设备放在同一二层。 |
+| Conan 编不过：没有 194 的预编译包、GitHub 源码超时，或 `LNK2019: __std_find_first_of_trivial_pos_2` | 见上面的[编译时踩过的坑](#编译时踩过的坑)。国内访问时 Conan 会重试 `github.com/sony/nmos-cpp` 的源码归档，需要 `HTTPS_PROXY` 或事先放好源码。 |
 | `--mdns` 给出 `172.18.32.1` 或 `169.254.x` | 实验 PC 上的 WSL、VMware 网卡也会出现在解析结果里。用 W1 核对 `http://192.168.1.15:3211`。 |
 | Registry 读不了刚写的 `config.json` | PowerShell 默认会写出带 BOM 的 JSON。把同一份内容重写成 UTF-8、无 BOM。 |
 | 本机 `nmos-cpp-registry.exe` 起不来，端口被占 | 先停掉 Docker 里的 Registry，释放 `3210`–`3213`。 |
@@ -137,9 +214,10 @@ R05     正常  -     节点、设备、发送器、接收器中没有重复 UUI
 
 只有运行 `nmos-reg-check` 时需要。启动本机 Registry 不需要这一步。Python 3.10 或更新。
 
-实验 PC（Windows）：
+实验 PC（Windows）。仓库在 `D:\trae_git\nmos-reg-check\`，在该目录里创建虚拟环境：
 
 ```bat
+cd /d D:\trae_git\nmos-reg-check
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e ".[dev]"
