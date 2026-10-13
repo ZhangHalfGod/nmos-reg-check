@@ -10,18 +10,35 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 > **What this repo is**: Python CLI that sends **HTTP GET only** to an [NMOS IS-04](https://specs.amwa.tv/is-04/) Query API and reports **R01** (the registry answers and a v1.x version is negotiated), **R02** (a node heartbeat is stale when that field exists), and **R05** (a UUID is reused across resources).  
-> **Lab flow**: prep (Bonjour, Conan, native registry) → start the registry → point devices and Explorer-class tools → **W1** `--registry` → **W2** `--mdns` → success criteria. Windows process notes: [`docs/deploy-lab/README.md`](docs/deploy-lab/README.md) (Chinese).  
 > **Lab addresses (2026-10-13)**: PC `192.168.1.15`, DUT `192.168.1.11`, Query `http://192.168.1.15:3211` (ports `3210`–`3213`).  
 > **Report language**: `--lang en` (default) · `--lang zh`.
 
 ---
 
+## Daily lab process
+
+One path for a normal lab day. Each step is one line; the link is the detail.
+
+1. **Prep.** Bonjour Service is Running, and Conan has deployed the registry binary. [Bonjour](#bonjour-on-windows-11) · [Install Conan](#install-conan) · [Deploy binaries](#deploy-binaries-with-conan) · [Build pitfalls](#build-pitfalls) · [Deploy notes](docs/deploy-lab/README.md#准备阶段)
+2. **Config.** Set `host_address` in `lab/config.json` to this PC's LAN IP. [Config](#config)
+3. **Start.** Run `scripts/start-lab-registry.bat`. Add `--check` to run the health check after the Query API answers. [One-click start](#one-click-start)
+4. **Point the device.** Static Query, or Auto Discover in an Explorer-class tool. [Point devices](#3-point-devices-and-explorer-class-tools-at-the-registry)
+5. **W1.** Check the Query API by URL. [W1](#4-w1-typed-query-api)
+6. **W2.** Find the registry with mDNS, then run the same checks. [W2](#5-w2-with-mdns)
+7. **Done when.** [What counts as success](#6-what-counts-as-success) · [FAQ](#7-faq)
+
+W1 and W2 need the CLI. Starting the registry does not. [Install the CLI](#install-the-cli)
+
+---
+
 ## Table of contents
 
+- [Daily lab process](#daily-lab-process)
 - [Lab workflow](#lab-workflow)
 - [1. Preparation](#1-preparation)
 - [2. Start the registry](#2-start-the-registry)
   - [One-click start](#one-click-start)
+  - [Config](#config)
 - [3. Point devices and Explorer-class tools at the registry](#3-point-devices-and-explorer-class-tools-at-the-registry)
 - [4. W1 typed Query API](#4-w1-typed-query-api)
 - [5. W2 with mdns](#5-w2-with-mdns)
@@ -168,7 +185,11 @@ scripts\start-lab-registry.bat --check
 | Config | `lab/config.json` |
 | Logs | `logs/native-registry.log`, `logs/native-registry.err` |
 
-The binary is not committed. Build it with Conan first; see [Deploy binaries with Conan](#deploy-binaries-with-conan). Edit `host_address` in `lab/config.json` to the LAN IP of the machine running the registry. The committed value `192.168.1.15` is the 2026-10-13 lab PC. The file is UTF-8 with no BOM. `NMOS_REGISTRY_CONFIG` may point at another config file; otherwise the script uses `lab/config.json`.
+The binary is not committed. Build it with Conan first; see [Deploy binaries with Conan](#deploy-binaries-with-conan).
+
+#### Config
+
+Edit `host_address` in [`lab/config.json`](lab/config.json) to the LAN IP of the machine running the registry. The committed value `192.168.1.15` is the 2026-10-13 lab PC. The file is UTF-8 with no BOM. `NMOS_REGISTRY_CONFIG` may point at another config file; otherwise the script uses `lab/config.json`.
 
 The script exits if the executable or the config is missing, if the Windows service **Bonjour Service** is missing or not Running (it prints the Bonjour Print Services for Windows / [DL999](https://support.apple.com/kb/DL999) hint and does not install Bonjour), or if TCP `3210`–`3213` are in use (it lists the owning process and does not stop Docker or any other process). It prints the resolved absolute paths and `host_address`, starts the registry in a new console with `Start-Process` (close that window to stop it; stdout and stderr go to `logs/`), waits about 3 seconds, and GETs `http://127.0.0.1:<query_port>/x-nmos/query/`.
 
