@@ -1,8 +1,10 @@
 # 实机部署：NMOS Registry 与自动发现（mDNS）
 
-Windows 11 实验机上的过程记录。要按顺序复现「准备 → 启动 Registry → 指向设备 / Explorer 类工具 → 跑检查 → 看结果」，用根 README 的[实验室操作顺序](../../README.md#实验室操作顺序)。本文保留当时怎么走到那套做法，包括没有走通的路径。Bonjour 安装、Conan 命令和编译问题见下面的[准备阶段](#准备阶段)。
+本文为中文过程记录。工具说明：[中文](../../README.zh-CN.md) · [English](../../README.md)。
 
-对象是一台真机 Node（nmos-node，`192.168.1.11`）和一台跑在本机上的 NMOS Registry，用来确认 [nmos-reg-check](../../README.md) 的两条路径都能对着实机工作：
+Windows 11 实验机上的过程记录。要按顺序复现「准备 → 启动 Registry → 指向设备 / Explorer 类工具 → 跑检查 → 看结果」，用中文 README 的[实验室操作顺序](../../README.zh-CN.md#实验室操作顺序)。本文保留当时怎么走到那套做法，包括没有走通的路径。Bonjour 安装、Conan 命令和编译问题见下面的[准备阶段](#准备阶段)。
+
+对象是一台真机 Node（nmos-node，`192.168.1.11`）和一台跑在本机上的 NMOS Registry，用来确认 [nmos-reg-check](../../README.zh-CN.md) 的两条路径都能对着实机工作：
 
 - **W1**：手动指定 Registry URL（`--registry`），只对 Query API 做 HTTP GET。
 - **W2**：`--mdns` 在局域网里浏览 `_nmos-query`、`_nmos-register`、`_nmos-registration`，选中一个服务后再走同一套检查。这和 Explorer 类工具的 **Auto Discover** 是同一类动作：先找到 Registry，再访问它。
@@ -202,7 +204,7 @@ D:\trae_git\nmos-reg-check\direct_deploy\nmos-cpp\bin\Release\nmos-cpp-node.exe
 
 ## 和 README 相同的启动命令
 
-可重复的顺序以根 README 为准：准备阶段里的 Bonjour 与本机 Registry 就绪、启动、静态 Query 与 Auto Discover 分开、再跑 W1 / W2。下面只留实验机上的命令。
+可重复的顺序以中文 README 的[实验室操作顺序](../../README.zh-CN.md#实验室操作顺序)为准：准备阶段里的 Bonjour 与本机 Registry 就绪、启动、静态 Query 与 Auto Discover 分开、再跑 W1 / W2。下面只留实验机上的命令。
 
 Docker compose 在 `D:\zc_softwate\Docker\WorkSpace\nmos-registry`。它只服务于当时的静态 Query。本机 Registry 启动前先停掉它，把 `3210`–`3213` 让出来。Bonjour Service 保持 Running（`Get-Service 'Bonjour Service'` 的 `Status` 为 `Running`）。配置文件是 `D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json`，`host_address` 为 `192.168.1.15`，UTF-8、无 BOM。Query API 是 `3211`。`3212` 是 Node 端口。真机 Node 是 `192.168.1.11`。
 
