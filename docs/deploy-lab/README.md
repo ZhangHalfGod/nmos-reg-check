@@ -1,6 +1,8 @@
 # 实机部署：NMOS Registry 与 Explorer Auto/mDNS
 
-Windows 11 实验机上的过程记录。对象是一台真实的 ST2110 网关（nmos-node）和一台跑在本机上的 NMOS Registry，用来确认 [nmos-reg-check](../../README.md) 的两条路径都能对着实机工作：
+Windows 11 实验机上的过程记录。要按顺序复现「启动 Registry → 指向设备 / Explorer → 跑检查 → 看结果」，用根 README 的[实验室操作顺序](../../README.md#实验室操作顺序)。本文保留当时怎么走到那套做法，包括没有走通的路径。
+
+对象是一台真实的 ST2110 网关（nmos-node）和一台跑在本机上的 NMOS Registry，用来确认 [nmos-reg-check](../../README.md) 的两条路径都能对着实机工作：
 
 - **W1**：手动指定 Registry URL（`--registry`），只对 Query API 做 HTTP GET。
 - **W2**：`--mdns` 在局域网里浏览 `_nmos-query`、`_nmos-register`、`_nmos-registration`，选中一个服务后再走同一套检查。这和 Riedel Explorer 的 **Auto Discover** 是同一类动作：先找到 Registry，再访问它。
@@ -80,6 +82,8 @@ D:\zc_softwate\Docker\WorkSpace\nmos-registry
 
 端口一直是 Registration `3210`、Query `3211`、Node `3212`、Query WebSocket `3213`。
 
+Docker 在这次实验里只用来快速确认静态 Query。Auto/mDNS 的最终结果不使用它，也不要留着它占端口。
+
 这一阶段的结论：
 
 - 静态 Query 是通的。W1 的 `--registry` 能打到 Query API。
@@ -149,27 +153,24 @@ conan install --requires=nmos-cpp/cci.20240223 ^
 | 链接 `__std_find_first_of_trivial_pos_2` | cpprestsdk ABI 与当前 MSVC 不一致 | `--build=cpprestsdk/*`（或重编其它不匹配的依赖） |
 | 本机 Registry 起不来，端口被占 | Docker Registry 仍占着 `3210`–`3213` | 先停掉 Docker 里的 Registry，再起本机进程 |
 
-## 现在怎么启动本机 Registry
+## 和 README 相同的启动命令
 
-1. 停掉 Docker compose 里的 Registry，确认 `3210`–`3213` 没有被占用。实验机上的 compose 在 `D:\zc_softwate\Docker\WorkSpace\nmos-registry`。
-2. 确认 Windows 服务 **Bonjour Service** 是 Running。`with_dnssd=mdnsresponder` 靠它发广告。
-3. 使用同一份 `config.json`。`host_address` 为 `192.168.1.15`。文件必须是 UTF-8、无 BOM。端口保持 Registration `3210`、Query `3211`、Node `3212`、Query WebSocket `3213`。
-4. 启动本机 Registry，把这份配置作为参数：
+可重复的顺序以根 README 为准：Bonjour 与本机 Registry 就绪、启动、静态 Query 与 Auto Discover 分开、再跑 W1 / W2。下面只留实验机上的命令。
+
+Docker compose 在 `D:\zc_softwate\Docker\WorkSpace\nmos-registry`。它只服务于当时的静态 Query。本机 Registry 启动前先停掉它，把 `3210`–`3213` 让出来。Bonjour Service 保持 Running。`config.json` 与 Docker 那份相同，`host_address` 为 `192.168.1.15`，UTF-8、无 BOM。Query API 是 `3211`。`3212` 是 Node 端口。设备是 `192.168.1.11`。
 
 ```bat
 direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.exe D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json
 ```
 
-起来之后，Registry 会注册这些 DNS-SD 类型：`_nmos-query`、`_nmos-registration`、`_nmos-register`、`_nmos-node`。
+起来之后注册 `_nmos-query`、`_nmos-registration`、`_nmos-register`、`_nmos-node`。
 
-再用工具确认。W1 直接打 Query 端口，W2 走发现：
+静态 Query 手填 `http://192.168.1.15:3211`。Auto Discover 和 `--mdns` 不手填 URL，PC 与设备保持在 `192.168.1.0/24`。
 
 ```bat
-nmos-reg-check --registry http://192.168.1.15:3211
+nmos-reg-check --registry http://192.168.1.15:3211 --lang zh
 nmos-reg-check --mdns --lang zh
 ```
-
-Explorer 侧用 **Auto Discover**，不要手填 URL。设备与 PC 保持在 `192.168.1.0/24`。
 
 ## 2026-10-13 的结果
 
@@ -186,5 +187,5 @@ Explorer 侧用 **Auto Discover**，不要手填 URL。设备与 PC 保持在 `1
 这不表示 Registry 只绑在虚拟网上。`config.json` 的 `host_address` 和局域网入口仍是 `192.168.1.15`，Query 端口 `3211`。发现结果看起来指向虚拟网卡时，用这个地址做 W1 对照：
 
 ```bat
-nmos-reg-check --registry http://192.168.1.15:3211
+nmos-reg-check --registry http://192.168.1.15:3211 --lang zh
 ```

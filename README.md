@@ -1,30 +1,151 @@
 # nmos-reg-check
 
-Command-line health check for an [NMOS IS-04](https://specs.amwa.tv/is-04/) registry. Point it at a registry with `--registry URL`, or pass `--mdns` and let it find one on the local network the way Riedel Explorer's **Auto Discover** fills in a registry before you type a URL.
+Read-only health check for an [NMOS IS-04](https://specs.amwa.tv/is-04/) registry. It sends **HTTP GET only** to the Query API and reports three results: the registry answers and a v1.x version is negotiated (**R01**), a node heartbeat is stale when that field exists (**R02**), and a UUID is reused across resources (**R05**).
 
-Both paths send **HTTP GET only** to the Query API, then report:
-
-| Check | What it means |
-| --- | --- |
-| **R01** | The registry answers and an IS-04 **v1.x** Query API version can be negotiated. |
-| **R02** | A node heartbeat is older than the IS-04 garbage-collection interval (**12 seconds**), when a heartbeat field is present. |
-| **R05** | The same UUID is used by more than one of `nodes`, `devices`, `senders`, or `receivers`. |
+下面按实验机上的顺序写：先启动本机 Registry，再让设备和 Explorer 指向它，然后跑 W1、W2，最后看什么样算通过。2026-10-13 的实机结果也在这一节。编译和排错过程在部署笔记里。
 
 ## 文档导航
 
-[`docs/deploy-lab/`](docs/deploy-lab/README.md) 记录的是 Windows 11 实验机上的实机路径：对着一台 ST2110 网关和本机 NMOS Registry，把手动 Registry URL（W1）和 Riedel Explorer **Auto Discover** / mDNS（W2）走通。笔记按实际顺序写了公司网 NAT、Docker Desktop 的 mDNS 到不了主机局域网，以及最后改用本机 Conan `nmos-cpp` 加 Windows Bonjour 的做法。
-
 - [实机部署过程（Registry + Explorer Auto/mDNS）](docs/deploy-lab/README.md)
-- [安装](#install)
-- [用法](#usage)
-- [发现（`--mdns`）](#discovery---mdns)
+- [实验室操作顺序](#实验室操作顺序)
+- [安装 CLI](#安装-cli)
 - [检查项](#checks)
 - [测试](#tests)
 - [许可证](#license)
 
-## Install
+[`docs/deploy-lab/`](docs/deploy-lab/README.md) 是 Windows 11 实验机的过程记录：公司网 NAT、Docker Desktop 的 mDNS 到不了主机局域网，以及最后改用本机 Conan `nmos-cpp` 加 Windows Bonjour。要复现通过的那条路径，按下面的顺序做。
 
-Python 3.10 or newer.
+## 实验室操作顺序
+
+两条路最后做的是同一组检查。
+
+- **W1** 手写 Registry 的 Query API：`--registry http://192.168.1.15:3211`。
+- **W2** 让程序在局域网里找 Registry：`--mdns`。这和 Riedel Explorer 的 **Auto Discover** 是同一类动作。
+
+2026-10-13 能工作的地址：
+
+| 角色 | 地址 | 用途 |
+| --- | --- | --- |
+| 实验 PC，本机 Registry | `192.168.1.15` | `config.json` 的 `host_address`，也是局域网入口 |
+| Query API | `http://192.168.1.15:3211` | W1、Explorer 静态查询。端口 `3211` |
+| Node API | 端口 `3212` | Registry 自己的 Node 端口。检查命令不填这个端口 |
+| DUT，ST2110 Encap 4K | `192.168.1.11` | 已经注册进来的 nmos-node |
+
+Registration 端口是 `3210`，Query WebSocket 是 `3213`。`nmos-reg-check` 只访问 Query API。
+
+### 1. 准备
+
+- Windows 服务 **Bonjour Service** 为 Running。本机 Registry 用 `mdnsresponder` 发 mDNS，靠这个服务。
+- `nmos-cpp-registry.exe` 已经编好。实验机上的文件是 `direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.exe`。Conan 包、MSVC 194 和链接错误写在 [部署笔记](docs/deploy-lab/README.md)，这里不重复。
+- 做 Auto Discover 或 `--mdns` 时，PC 和设备在同一二层。实验里是 PC `192.168.1.15`，DUT `192.168.1.11`，子网 `192.168.1.0/24`。
+- PC 还在 Netgear NAT 后面时（当时 PC 是 `10.0.0.4`，WAN 是 `192.168.1.10`），只能做静态 Query。mDNS 过不了那层 NAT。
+- Docker Desktop 里的 `rhastie/nmos-cpp` 只用来快速确认静态 Query。Auto/mDNS 用本机 Registry。容器如果还占着 `3210`–`3213`，先停掉。
+- 跑第 4、5 步之前安装命令行工具，见 [安装 CLI](#安装-cli)。启动 Registry 不需要这个安装。
+
+### 2. 启动 Registry
+
+配置沿用实验机上的 `config.json`：`host_address` 为 `192.168.1.15`，编码是 UTF-8、无 BOM。路径是这台 PC 上的，不是仓库里的文件：
+
+```bat
+direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.exe D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json
+```
+
+起来之后，Bonjour 上会注册 `_nmos-query`、`_nmos-registration`、`_nmos-register`、`_nmos-node`。
+
+### 3. 让设备和 Explorer 指向 Registry
+
+静态查询和 Auto Discover 是两种用法。
+
+**静态 Query。** 地址由人填写，填 Registry 的 Query API：
+
+```text
+http://192.168.1.15:3211
+```
+
+`192.168.1.15` 是跑 Registry 的 PC。`3211` 是 Query API。设备侧的 RDS 填设备在网上能够访问到的 Registry 主机：和 PC 同一子网时是 `192.168.1.15`。PC 还在 NAT 后面时，设备填 Netgear WAN `192.168.1.10`，并已把 TCP `3210`–`3213` 映射到 PC。
+
+**Auto Discover。** 在 Explorer 里使用 Auto Discover。PC 与设备保持同一二层，Registry 用第 2 步的本机进程，由 Bonjour 发广告。
+
+### 4. W1：手写 Query API
+
+在实验 PC 上：
+
+```bat
+nmos-reg-check --registry http://192.168.1.15:3211 --lang zh
+```
+
+这个 URL 是 Registry 的 Query API。程序接着请求 `/x-nmos/query/`，再读取 nodes、devices、senders、receivers。中文报告加上 `--lang zh`，要 JSON 再加上 `--json`。
+
+W1 适合已经知道 Registry 地址的时候，也用来核对 W2 选中的是不是局域网入口。
+
+### 5. W2：`--mdns`
+
+Registry 已经在发 mDNS、并且就在这台 PC 上（或同一二层）时：
+
+```bat
+nmos-reg-check --mdns --lang zh
+```
+
+W2 用来确认「不手填 URL 也能找到 Registry」，也就是 Explorer Auto Discover 在做的事。它浏览 `_nmos-query`，没有 Query 时再用 `_nmos-register`，仍没有再用旧的 `_nmos-registration`。浏览对象是 Registry。设备的 `_nmos-node` 不在浏览范围内。
+
+默认听 3 秒。需要更长时间时：
+
+```bat
+nmos-reg-check --mdns --mdns-timeout 5 --lang zh
+```
+
+同时写了 `--registry` 和 `--mdns` 时，使用写出的 URL，不再浏览，stderr 会说明已跳过 mDNS。
+
+W2 报告开头有一行发现结果，标出选中的服务、类型、优先级和找到的个数。这台 PC 上还有 WSL、VMware 网卡时，这一行里的地址可能是 `172.18.32.1` 或 `169.254.x`。局域网入口仍然是 `http://192.168.1.15:3211`，用第 4 步再查一次。
+
+### 6. 怎样算成功
+
+2026-10-13 在上面这套地址上看到的是：
+
+- Explorer **Auto Discover** 找到 Registry。
+- ST2110 Encap 4K（`192.168.1.11`）已经注册，nodes、devices、senders 可见。
+- `nmos-reg-check --mdns` 发现了 Query 服务。解析到的地址可能是虚拟网卡，见第 5 步。
+
+命令行通过时退出码是 0，表格里没有「错误」。对着这台 nmos-cpp Registry，Query 的 node 文档通常没有心跳字段，R02 会是「信息」，这仍然是退出码 0。下面是 `--lang zh` 时的报告形状，尖括号里的版本和个数随当天的 Registry 变化，不是一份保存下来的 2026-10-13 原始输出：
+
+```text
+注册中心: http://192.168.1.15:3211
+Query API: <v1.x> http://192.168.1.15:3211/x-nmos/query/<v1.x>/
+资源: 节点=<个数>，设备=<个数>，发送器=<个数>，接收器=<个数>
+
+检查项  级别  资源  说明
+R01     正常  -     Query API <v1.x> 可达，版本协商成功
+R02     信息  -     节点没有 health/heartbeat 字段，已跳过心跳检查
+R05     正常  -     节点、设备、发送器、接收器中没有重复 UUID
+
+0 个错误，1 条信息，2 个正常
+```
+
+资源行里应能对上 Explorer 里已经看见的 ST2110 节点、设备和发送器。心跳字段存在而且早于 12 秒时，R02 变为错误，退出码为 1。连不上 Registry 时退出码为 2。各项判定见 [检查项](#checks)。
+
+### 7. 常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| 设备连不上 Registry，RDS 里写了 `127.0.0.1` | `127.0.0.1` 只指向填写它的那台机器。设备填它能访问的 Registry 主机：同网段用 `192.168.1.15`；NAT 阶段用 `192.168.1.10`，并映射 TCP `3210`–`3213`。`10.0.0.4` 在 NAT 内侧，设备没有反向路径。 |
+| 静态 Query 正常，Explorer Auto 为空 | Docker Desktop 发出的 mDNS 到不了主机局域网。设备的 `_nmos-node` 当时在 LAN 上是可见的。Auto/mDNS 改用第 2 步的本机 Registry 和 Bonjour，PC 与设备放在同一二层。 |
+| `--mdns` 给出 `172.18.32.1` 或 `169.254.x` | 实验 PC 上的 WSL、VMware 网卡也会出现在解析结果里。用 W1 核对 `http://192.168.1.15:3211`。 |
+| Registry 读不了刚写的 `config.json` | PowerShell 默认会写出带 BOM 的 JSON。把同一份内容重写成 UTF-8、无 BOM。 |
+| 本机 `nmos-cpp-registry.exe` 起不来，端口被占 | 先停掉 Docker 里的 Registry，释放 `3210`–`3213`。 |
+
+## 安装 CLI
+
+只有运行 `nmos-reg-check` 时需要。启动本机 Registry 不需要这一步。Python 3.10 或更新。
+
+实验 PC（Windows）：
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+```
+
+其它系统：
 
 ```bash
 python3 -m venv .venv
@@ -32,21 +153,55 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-The install adds the `nmos-reg-check` command. `python -m nmos_reg_check` runs the same entry point.
+安装后得到 `nmos-reg-check`。`python -m nmos_reg_check` 是同一个入口。
 
-## Usage
+## 参考
 
-```bash
-nmos-reg-check --registry http://192.168.1.20:8080
-nmos-reg-check --mdns
-nmos-reg-check --mdns --mdns-timeout 5 --lang zh
-nmos-reg-check --registry https://registry.example/x-nmos/query/v1.3/ --json
-nmos-reg-check --registry https://registry.example:8443 --insecure --lang zh
-```
+做完上面的步骤之后，再用这一节核对 URL 写法、退出码和 mDNS 选择规则。
 
-`--registry` is the static URL. `--mdns` is auto-discovery. They are two ways to obtain the same registry address. If both are set, the explicit URL is used and mDNS is not browsed; a warning says so.
+### Registry URL
 
-## Discovery (`--mdns`)
+`--registry` 接受：
+
+- 主机根地址：`http://host:port`。实验里是 `http://192.168.1.15:3211`。
+- `/x-nmos/` 前面的路径前缀：`http://host:port/nms`
+- Query API 根：`http://host:port/x-nmos/query/`
+- 写死的版本：`http://host:port/x-nmos/query/v1.3/`（末尾的 `/nodes` 会被忽略）
+
+从主机根地址或 Query API 根出发时，使用 Registry 声明的最高 **v1** 次版本。v1.0 到 Registry 列出的任意 v1 次版本都可以。更高的主版本不会被使用。写死的版本按原文请求。
+
+客户端读取：
+
+- `GET /x-nmos/`
+- `GET /x-nmos/query/`
+- `GET /x-nmos/query/{version}/`
+- `GET /x-nmos/query/{version}/nodes`
+- `GET /x-nmos/query/{version}/devices`
+- `GET /x-nmos/query/{version}/senders`
+- `GET /x-nmos/query/{version}/receivers`
+
+这些集合 URL 是 IS-04 v1.3 规定的。每个响应是资源的 JSON 数组。Registry 用 `paging.since` / `paging.until` 分页时，会跟随 `Link: rel="next"`。单个资源对象也可以，包装 `{"nodes": [...]}` 和 `{"data": [...]}` 也可以（还有 `items`、`resources`、`results`、`result`）。
+
+### Options
+
+| Option | Meaning |
+| --- | --- |
+| `--registry URL` | Registry 主机根地址或 Query API URL。与 `--mdns` 同时给出时使用这个 URL。 |
+| `--mdns` | 用 mDNS 发现 Registry，再做同一组检查。 |
+| `--mdns-timeout SECONDS` | 听 mDNS 的秒数，默认 3，必须大于 0。 |
+| `--json` | 把报告以 JSON 写到 stdout。 |
+| `--lang en\|zh` | 报告语言，默认 `en`。 |
+| `--insecure` | 不校验 TLS 证书。 |
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | 没有 severity 为 `error` 的结果。信息项，包括跳过的心跳检查，仍然是 0。 |
+| 1 | Registry 有响应，并且至少一项检查报了错误。 |
+| 2 | 没有 HTTP 响应（DNS、连接、超时、TLS），或者命令本身不能运行（URL 不对、缺少 `--registry` / `--mdns`、`--mdns-timeout` 非法、mDNS 什么都没找到、mDNS 自身失败）。 |
+
+### Discovery (`--mdns`)
 
 `--mdns` browses multicast DNS for the IS-04 DNS-SD types in `.local`:
 
@@ -78,58 +233,16 @@ The text report and stderr name the service that was chosen, its type, priority,
 
 Nothing usable exits 2. That includes an empty browse, a browse where every advertisement required authorization or had no v1 API, and an mDNS failure (no multicast permission, for example). `--mdns-timeout` is how long to listen, in seconds. The default is 3. Resolving each answer can take up to another second when the address was not already in the response.
 
-### Limitations
+#### Limitations
 
-- Multicast does not cross a typical Docker bridge. A registry on the LAN is invisible to a container unless the container uses host networking (`docker run --network host` on Linux) or you pass `--registry`. The same applies to many VMs and WSL2 setups.
+- Multicast does not cross a typical Docker bridge, and it did not leave Docker Desktop onto the lab LAN. Static Query against the published ports still worked. Auto/mDNS in this lab uses the native registry in the steps above. A container on Linux needs host networking (`docker run --network host`) or an explicit `--registry`. The same limit applies to many VMs and WSL2 setups.
 - Linux needs UDP port 5353 and a route for 224.0.0.251 (and IPv6 multicast when the host has IPv6). macOS and Windows receive mDNS on the host in the usual way; the library is [python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) (`zeroconf` on PyPI), which supports all three.
-- Link-local addresses are used only when the advertisement has no other address. An IPv6 link-local address is used without a zone index, so it may be unreachable.
+- Link-local addresses are used only when the advertisement has no other address. An IPv6 link-local address is used without a zone index, so it may be unreachable. On the lab PC, a virtual NIC address such as `172.18.32.1` or `169.254.x` can be chosen; the LAN Query endpoint remains `http://192.168.1.15:3211`.
 - This tool does not browse unicast DNS-SD and does not retry a different discovered registry in the same run.
 
-### Registry URL
+### Report shape
 
-`--registry` accepts any of:
-
-- an origin: `http://host:port`
-- a path prefix in front of `/x-nmos/`: `http://host:port/nms`
-- the Query API root: `http://host:port/x-nmos/query/`
-- a pinned version: `http://host:port/x-nmos/query/v1.3/` (a trailing `/nodes` is ignored)
-
-From an origin or a Query API root, the highest advertised **v1** minor version is used. v1.0 through whatever v1 minor the registry lists are accepted. A later major version is not used. A pinned version is requested as given.
-
-The client reads:
-
-- `GET /x-nmos/`
-- `GET /x-nmos/query/`
-- `GET /x-nmos/query/{version}/`
-- `GET /x-nmos/query/{version}/nodes`
-- `GET /x-nmos/query/{version}/devices`
-- `GET /x-nmos/query/{version}/senders`
-- `GET /x-nmos/query/{version}/receivers`
-
-Those collection URLs are what IS-04 v1.3 specifies. Each response is a JSON array of resources. `Link: rel="next"` is followed when a registry pages with `paging.since` / `paging.until`. A single resource object is accepted, as are wrappers `{"nodes": [...]}` and `{"data": [...]}` (also `items`, `resources`, `results`, `result`).
-
-### Options
-
-| Option | Meaning |
-| --- | --- |
-| `--registry URL` | Registry origin or Query API URL. Wins over `--mdns` when both are set. |
-| `--mdns` | Discover a registry with mDNS, then run the same checks. |
-| `--mdns-timeout SECONDS` | How long to listen for mDNS (default 3). Must be greater than 0. |
-| `--json` | Write the report as JSON to stdout. |
-| `--lang en\|zh` | Report language. Default `en`. |
-| `--insecure` | Do not verify TLS certificates. |
-
-### Exit codes
-
-| Code | Meaning |
-| --- | --- |
-| 0 | No finding has severity `error`. Info results, including a skipped heartbeat check, still exit 0. |
-| 1 | The registry responded, and at least one check reported an error. |
-| 2 | No HTTP response (DNS, connection, timeout, TLS), or the command line cannot be run (bad URL, missing `--registry` / `--mdns`, invalid `--mdns-timeout`, mDNS found nothing, mDNS itself failed). |
-
-### Example
-
-Against a registry whose Query API returns the usual node, device, sender, and receiver arrays (no heartbeat field on the nodes):
+下面这段是报告长什么样，用的是一组夹具数据（`http://192.168.1.20:8080`，nodes=2）。它不是 2026-10-13 的实机输出。实机看第 6 步。
 
 ```text
 Registry: http://192.168.1.20:8080
