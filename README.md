@@ -1,12 +1,26 @@
 # nmos-reg-check
 
-Command-line health check for an [NMOS IS-04](https://specs.amwa.tv/is-04/) registry. Point it at a registry with `--registry URL`, or pass `--mdns` and let it find one on the local network the way Riedel Explorer's **Auto Discover** fills in a registry before you type a URL. Both paths send **HTTP GET only** to the Query API, then report:
+Command-line health check for an [NMOS IS-04](https://specs.amwa.tv/is-04/) registry. Point it at a registry with `--registry URL`, or pass `--mdns` and let it find one on the local network the way Riedel Explorer's **Auto Discover** fills in a registry before you type a URL.
+
+Both paths send **HTTP GET only** to the Query API, then report:
 
 | Check | What it means |
 | --- | --- |
 | **R01** | The registry answers and an IS-04 **v1.x** Query API version can be negotiated. |
 | **R02** | A node heartbeat is older than the IS-04 garbage-collection interval (**12 seconds**), when a heartbeat field is present. |
 | **R05** | The same UUID is used by more than one of `nodes`, `devices`, `senders`, or `receivers`. |
+
+## 文档导航
+
+[`docs/deploy-lab/`](docs/deploy-lab/README.md) 记录的是 Windows 11 实验机上的实机路径：对着一台 ST2110 网关和本机 NMOS Registry，把手动 Registry URL（W1）和 Riedel Explorer **Auto Discover** / mDNS（W2）走通。笔记按实际顺序写了公司网 NAT、Docker Desktop 的 mDNS 到不了主机局域网，以及最后改用本机 Conan `nmos-cpp` 加 Windows Bonjour 的做法。
+
+- [实机部署过程（Registry + Explorer Auto/mDNS）](docs/deploy-lab/README.md)
+- [安装](#install)
+- [用法](#usage)
+- [发现（`--mdns`）](#discovery---mdns)
+- [检查项](#checks)
+- [测试](#tests)
+- [许可证](#license)
 
 ## Install
 
