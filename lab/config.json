@@ -1,0 +1,12 @@
+{
+  "pri": 10,
+  "logging_level": 0,
+  "http_trace": false,
+  "label": "local-nmos-registry",
+  "host_address": "192.168.1.15",
+  "registration_port": 3210,
+  "query_port": 3211,
+  "query_ws_port": 3213,
+  "node_port": 3212,
+  "registration_expiry_interval": 12
+}

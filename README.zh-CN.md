@@ -10,17 +10,35 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 > **本仓做什么**：Python 命令行，只对 [NMOS IS-04](https://specs.amwa.tv/is-04/) Query API 发 **HTTP GET**，报告三项：**R01** 注册中心有响应且协商出 v1.x，**R02** 节点带心跳字段时该心跳已过期，**R05** 同一 UUID 被多个资源复用。  
-> **实验顺序**：准备（Bonjour、Conan、本机 Registry）→ 启动 Registry → 让设备和 Explorer 类工具指向它 → **W1** `--registry` → **W2** `--mdns` → 怎样算成功。过程记录：[docs/deploy-lab/README.md](docs/deploy-lab/README.md)。  
 > **2026-10-13 地址**：实验 PC `192.168.1.15`，真机 Node `192.168.1.11`，Query `http://192.168.1.15:3211`（端口 `3210`–`3213`）。  
 > **报告语言**：`--lang en`（默认）· `--lang zh`。
 
 ---
 
+## 日常实验流程
+
+平常一天按这个顺序做。每步一行，细节在链接里。
+
+1. **准备。** Bonjour Service 处于 Running，并且 Conan 已经部署出 Registry 可执行文件。[Bonjour](#windows-11-上的-bonjour) · [安装 Conan](#安装-conan) · [部署二进制](#用-conan-部署二进制) · [编译时踩过的坑](#编译时踩过的坑) · [部署笔记](docs/deploy-lab/README.md#准备阶段)
+2. **配置。** 把 `lab/config.json` 里的 `host_address` 改成这台 PC 的局域网 IP。[配置](#配置)
+3. **启动。** 运行 `scripts/start-lab-registry.bat`。加上 `--check` 会在 Query API 有响应后做健康检查。[一键启动](#一键启动)
+4. **让设备指向它。** 手填静态 Query，或在 Explorer 类工具里用 Auto Discover。[指向 Registry](#3-让设备和-explorer-类工具指向-registry)
+5. **W1。** 用手写的 Query URL 做检查。[W1](#4-w1-手写-query-api)
+6. **W2。** 用 mDNS 找到 Registry，再做同一组检查。[W2](#5-w2-使用-mdns)
+7. **怎样算通过。** [怎样算成功](#6-怎样算成功) · [常见问题](#7-常见问题)
+
+只有 W1 和 W2 需要安装命令行。启动 Registry 不需要。[安装 CLI](#安装-cli)
+
+---
+
 ## 目录
 
+- [日常实验流程](#日常实验流程)
 - [实验室操作顺序](#实验室操作顺序)
 - [1. 准备阶段](#1-准备阶段)
 - [2. 启动 Registry](#2-启动-registry)
+  - [一键启动](#一键启动)
+  - [配置](#配置)
 - [3. 让设备和 Explorer 类工具指向 Registry](#3-让设备和-explorer-类工具指向-registry)
 - [4. W1 手写 Query API](#4-w1-手写-query-api)
 - [5. W2 使用 mdns](#5-w2-使用-mdns)
@@ -59,7 +77,7 @@ Registration 端口是 `3210`，Query WebSocket 是 `3213`。`nmos-reg-check` �
 
 ### 1. 准备阶段
 
-做第 2 步之前，Windows 11 实验机上要有正在运行的 **Bonjour Service**，以及编好的本机 Registry。仓库和 Conan deployer 的工作目录是 `D:\trae_git\nmos-reg-check\`。`config.json` 不在仓库里，在 `D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json`。更完整的过程在 [部署笔记](docs/deploy-lab/README.md#准备阶段)。
+做第 2 步之前，Windows 11 实验机上要有正在运行的 **Bonjour Service**，以及编好的本机 Registry。仓库和 Conan deployer 的工作目录是 `D:\trae_git\nmos-reg-check\`。实验当时的配置在 `D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json`。同一份内容已提交为 `lab/config.json`，把 `host_address` 改成跑 Registry 这台机器的局域网 IP。更完整的过程在 [部署笔记](docs/deploy-lab/README.md#准备阶段)。
 
 #### Windows 11 上的 Bonjour
 
@@ -143,7 +161,41 @@ D:\trae_git\nmos-reg-check\direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.
 
 ### 2. 启动 Registry
 
-配置沿用实验机上的 `config.json`：`host_address` 为 `192.168.1.15`，编码是 UTF-8、无 BOM。可执行文件在仓库工作目录下（不提交），配置文件在 Docker 那份目录里：
+#### 一键启动
+
+在 Windows 上双击 `scripts/start-lab-registry.bat`，或在任意目录运行下面任一脚本。脚本用自己的位置找到仓库根目录。
+
+```bat
+scripts\start-lab-registry.bat
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-lab-registry.ps1
+```
+
+加上 `--check` 会在 Query API 有响应之后跑健康检查：
+
+```bat
+scripts\start-lab-registry.bat --check
+```
+
+| 项目 | 相对仓库根目录的路径 |
+| --- | --- |
+| Registry 可执行文件 | `direct_deploy/nmos-cpp/bin/Release/nmos-cpp-registry.exe` |
+| 配置 | `lab/config.json` |
+| 日志 | `logs/native-registry.log`、`logs/native-registry.err` |
+
+可执行文件不提交，需要先按 [用 Conan 部署二进制](#用-conan-部署二进制) 编出来。
+
+#### 配置
+
+把 [`lab/config.json`](lab/config.json) 里的 `host_address` 改成跑 Registry 这台机器的局域网 IP。仓库里提交的 `192.168.1.15` 是 2026-10-13 实验 PC 的地址。文件编码是 UTF-8、无 BOM。环境变量 `NMOS_REGISTRY_CONFIG` 可以改指向另一份配置；不设则用 `lab/config.json`。
+
+脚本在这些情况下会失败退出：找不到可执行文件或配置；Windows 服务 **Bonjour Service** 没安装或不是 Running（打印 Bonjour Print Services for Windows / [DL999](https://support.apple.com/kb/DL999) 的安装提示，不会去安装）；TCP `3210`–`3213` 已被占用（列出占用进程，不会停 Docker 或其它进程）。它会打印解析后的绝对路径和配置里的 `host_address`，用 `Start-Process` 在新控制台窗口启动 Registry（关掉该窗口即停止；标准输出和标准错误写到 `logs/`），等待约 3 秒，再 GET `http://127.0.0.1:<query_port>/x-nmos/query/`。
+
+`--check` 在探测成功之后，若 `PATH` 上有 `nmos-reg-check`，则执行 `nmos-reg-check --registry http://<host_address>:<query_port> --lang zh`。否则在仓库根目录尝试 `python -m nmos_reg_check`，有 `.venv` 就用它。仍然找不到检查程序时只警告，Registry 保持运行。
+
+实验当天在那台机器上用的是绝对路径：
 
 ```bat
 D:\trae_git\nmos-reg-check\direct_deploy\nmos-cpp\bin\Release\nmos-cpp-registry.exe D:\zc_softwate\Docker\WorkSpace\nmos-registry\config.json
