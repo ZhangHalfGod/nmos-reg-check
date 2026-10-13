@@ -5,3 +5,13 @@ __pycache__/
 .venv/
 dist/
 build/
+
+# Lab-local Conan deploy of nmos-cpp (binaries and generated run scripts)
+direct_deploy/
+conanrun*.bat
+conanrun*.ps1
+conanrun*.sh
+conanbuild*.bat
+conanbuild*.sh
+deactivate_conanrun*
+deactivate_conanbuild*
