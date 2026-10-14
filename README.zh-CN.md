@@ -2,6 +2,8 @@
 
 **Language / 语言:** [English](README.md) | [中文](README.zh-CN.md)
 
+> **路线图。** 一期（当前）：IS-04 注册中心健康检查（W1/W2）与实验室一键启动。**二期（还在开发）：** IS-05 与 SDP。**后续：** IS-08（audio mapping），以及其他 IS 协议与 NMOS 相关协议。
+
 > **只读的 NMOS IS-04 注册中心健康检查：用手写 Query URL 核验实验室注册表（W1），或用 mDNS 发现注册中心后再做同一组检查（W2）。**
 
 [![GitHub](https://img.shields.io/badge/GitHub-ZhangHalfGod%2Fnmos--reg--check-blue?logo=github)](https://github.com/ZhangHalfGod/nmos-reg-check)
