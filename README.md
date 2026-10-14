@@ -2,6 +2,8 @@
 
 **Language / 语言:** [English](README.md) | [中文](README.zh-CN.md)
 
+> **Roadmap.** Phase 1 (current): IS-04 registry health check (W1/W2) and lab one-click start. **Phase 2 (in development):** IS-05 and SDP. **Later:** IS-08 (audio mapping), and other AMWA IS / NMOS specs as needed.
+
 > **Read-only NMOS IS-04 registry health check for the lab: verify the Query API by URL (W1), or discover the registry with mDNS and check it the same way (W2).**
 
 [![GitHub](https://img.shields.io/badge/GitHub-ZhangHalfGod%2Fnmos--reg--check-blue?logo=github)](https://github.com/ZhangHalfGod/nmos-reg-check)
